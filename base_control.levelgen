@@ -3,7 +3,7 @@ local EXEMPT_ID_START = 900
 
 -- the types of objects to change over
 local OWNED_OBJECT_TYPES = {
-  -- ObjType.ShipSpawn,
+  ObjType.ShipSpawn,
   ObjType.Turret,
   ObjType.ForceFieldProjector
 }
@@ -12,70 +12,74 @@ local OWNED_OBJECT_TYPES = {
 -- You probably don't need to change anything below here --
 -----------------------------------------------------------
 
-local gZoneHistory = { }
-
 function main()
-  bf:subscribe(Event.ShipEnteredZone)
   bf:subscribe(Event.ScoreChanged)
 end
 
 local teamObjects = { }
 local zones = { }
-function onShipEnteredZone(ship, enteredZone)
-
-  -- only fire when newly capturing a zone
-  if (not ship:hasFlag()) or (gZoneHistory[enteredZone:getId()] == ship:getTeamIndex()) then
-    return
-  end 
-
-  -- mark this zone and its owner in the history
-  gZoneHistory[enteredZone:getId()] = ship:getTeamIndex()
-
-  bf:findAllObjects(teamObjects, unpack(OWNED_OBJECT_TYPES))
-  bf:findAllObjects(zones, ObjType.GoalZone)
-  for _,obj in pairs(teamObjects) do
-    if obj:getId() < EXEMPT_ID_START then
-      local closestZone = nil
-      local closestDistance = math.huge
-
-      -- find the zone closest to this object
-      for _,zone in pairs(zones) do
-        local distance = point.distSquared(obj:getPos(), zone:getPos())
-        if distance < closestDistance then
-          closestDistance = distance
-          closestZone = zone
-        end
-      end
-
-      -- if it is the zone just entered, then this zone was taken control of
-      if closestZone == enteredZone then
-        obj:setTeam(enteredZone:getTeamIndex())
-        pcall(function() obj:setHealth(1) end)
-      end
-    end
-  end
-end
-
-function onScoreChanged()
+function onScoreChanged(change, team, player)
   Timer:scheduleOnce(function()
+    if change < 1 or (not player) or (not player:getShip()) then
+      return
+    end
+
+    local ship = player:getShip()
     bf:findAllObjects(zones, ObjType.GoalZone)
+    bf:findAllObjects(teamObjects, unpack(OWNED_OBJECT_TYPES))
 
     -- check if all goal zones are on the same team -- this indicates a touchdown
+    local isTouchdown = true
     local team = zones[1]:getTeamIndex()
     for _,zone in pairs(zones) do
       if zone:getTeamIndex() ~= team then
-        return
+        isTouchdown = false
+        break
       end
     end
 
-    -- disable objects and set them to neutral
-    bf:findAllObjects(teamObjects, ObjType.Turret, ObjType.ForceFieldProjector)
+    if isTouchdown then
+      -- disable objects and set them to neutral
+      for _,obj in pairs(teamObjects) do
+        if obj:getId() < EXEMPT_ID_START then
+          obj:setTeam(-1)
+          pcall(function() obj:setHealth(0) end)
+        end
+      end
+
+      -- that's all
+      return
+    end
+
+    -- find the zone closest to this player, probably the zone he just captured
+    -- XXX: this can break if zones are too close together
+    local capturedZone = findClosest(ship, zones)
+
+    -- Now find all objects whose closest zone is the captured one
     for _,obj in pairs(teamObjects) do
       if obj:getId() < EXEMPT_ID_START then
-        obj:setTeam(-1)
-        pcall(function() obj:setHealth(0) end)
-        gZoneHistory = { }
+        local closestZone = findClosest(obj, zones)
+        if closestZone == capturedZone then
+          -- heal them and change owners
+          obj:setTeam(ship:getTeamIndex())
+          pcall(function() obj:setHealth(1) end)
+        end
       end
     end
   end, 1)
+end
+
+-- simple helper
+function findClosest(needle, hayStack)
+  local closestObject = nil
+  local closestDistance = math.huge
+  for _,object in pairs(hayStack) do
+    local distance = point.distSquared(object:getPos(), needle:getPos())
+    if distance < closestDistance then
+      closestDistance = distance
+      closestObject = object
+    end
+  end
+
+  return closestObject, closestDistance
 end
