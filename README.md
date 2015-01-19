@@ -3,6 +3,10 @@ options.
 
 # base_control.levelgen
 
+## Examples
+
+[Base Control](http://bitfighter.org/levels/levels/view/374) - kaen
+
 ## Overview
 
 Adds "base control" to zone control games. When a zone is captured, nearby
